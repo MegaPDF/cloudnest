@@ -198,8 +198,25 @@ export async function POST(request: NextRequest) {
         // Update existing plan
         const { planId, updates } = body;
         const updateData = planManagementSchema.partial().parse(updates);
+
+        // Transform features if present
+        let transformedUpdateData = { ...updateData };
+        if (updateData.features) {
+          // Convert string[] to PlanFeature[]
+          const featureObjects = updateData.features.map((feature: string) => ({
+            id: feature,
+            name: feature.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            description: '',
+            included: true
+          }));
+          // Ensure correct type
+          (transformedUpdateData as any).features = featureObjects;
+        } else if ('features' in transformedUpdateData) {
+          // If features is present but undefined, remove it to avoid type issues
+          delete (transformedUpdateData as any).features;
+        }
         
-        planManager.updatePlan(planId, updateData);
+        planManager.updatePlan(planId, transformedUpdateData as Partial<import('@/lib/payments/plans').SubscriptionPlan>);
 
         return NextResponse.json<ApiResponse>({
           success: true,
@@ -469,7 +486,17 @@ async function manageUserSubscription(data: any) {
       if (subscription && data.planId) {
         const newPlan = planManager.getPlan(data.planId);
         if (newPlan) {
-          subscription.plan = newPlan;
+          subscription.plan = {
+            id: newPlan.id,
+            name: newPlan.name,
+            description: newPlan.description,
+            features: newPlan.features.map((f: any) => f.id),
+            price: data.price ?? (newPlan.pricing?.[0]?.monthly ?? 0),
+            currency: data.currency ?? (newPlan.pricing?.[0]?.currency ?? 'USD'),
+            interval: data.interval ?? 'month',
+            storageLimit: newPlan.storageLimit,
+            isActive: newPlan.isActive
+          };
           await subscription.save();
         }
       }
